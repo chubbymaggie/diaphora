@@ -51,7 +51,15 @@ from idc import *
 from idaapi import *
 from idautils import *
 
-from PySide import QtGui
+try:
+  # In versions prior to IDA 6.9 PySide is used...
+  from PySide import QtGui
+  QtWidgets = QtGui
+  is_pyqt5 = False
+except ImportError:
+  # ...while in IDA 6.9, they switched to PyQt5
+  from PyQt5 import QtCore, QtGui, QtWidgets
+  is_pyqt5 = True
 
 from others.tarjan_sort import strongly_connected_components, robust_topological_sort
 from jkutils.kfuzzy import CKoretFuzzyHashing
@@ -59,7 +67,7 @@ from jkutils.factor import (FACTORS_CACHE, difference, difference_ratio,
                             primesbelow as primes)
 
 #-----------------------------------------------------------------------
-VERSION_VALUE = "1.0.7"
+VERSION_VALUE = "1.0.8"
 COPYRIGHT_VALUE="Copyright(c) 2015 Joxean Koret"
 COMMENT_VALUE="Diaphora diffing plugin for IDA version %s" % VERSION_VALUE
 
@@ -134,7 +142,10 @@ def ast_ratio(ast1, ast2):
 #-----------------------------------------------------------------------
 class CHtmlViewer(PluginForm):
   def OnCreate(self, form):
-    self.parent = self.FormToPySideWidget(form)
+    if is_pyqt5:
+      self.parent = self.FormToPyQtWidget(form)
+    else:
+      self.parent = self.FormToPySideWidget(form)
     self.PopulateForm()
     
     self.browser = None
@@ -142,10 +153,10 @@ class CHtmlViewer(PluginForm):
     return 1
   
   def PopulateForm(self):
-    self.layout = QtGui.QVBoxLayout()
-    self.browser = QtGui.QTextBrowser()
+    self.layout = QtWidgets.QVBoxLayout()
+    self.browser = QtWidgets.QTextBrowser()
     # Commented for now
-    #self.browser.setLineWrapMode(QtGui.QTextEdit.NoWrap)
+    #self.browser.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
     self.browser.setHtml(self.text)
     self.browser.setReadOnly(True)
     self.browser.setFontWeight(12)
@@ -428,7 +439,7 @@ class CBinDiffExporterSetup(Form):
 try:
   class CAstVisitor(ctree_visitor_t):
     def __init__(self, cfunc):
-      self.primes = primes(1024)
+      self.primes = primes(4096)
       ctree_visitor_t.__init__(self, CV_FAST)
       self.cfunc = cfunc
       self.primes_hash = 1
@@ -598,7 +609,7 @@ td.diff_header {text-align:right}
 class CBinDiff:
   def __init__(self, db_name):
     self.names = dict(Names())
-    self.primes = primes(1024*1024)
+    self.primes = primes(2048*2048)
     self.db_name = db_name
     self.open_db()
     self.matched1 = set()
@@ -1045,12 +1056,13 @@ class CBinDiff:
     demangled_name = Demangle(name, INF_SHORT_DN)
     if demangled_name is not None:
       name = demangled_name
-    
-    # Always remove the first underscores
-    name = name.lstrip("_")
 
     f = int(f)
     func = get_func(f)
+    if not func:
+      log("Cannot get a function object for 0x%x" % f)
+      return False
+
     flow = FlowChart(func)
     size = 0
 
@@ -1252,7 +1264,12 @@ class CBinDiff:
     cc = edges - nodes + 2
     proto = self.guess_type(f)
     proto2 = GetType(f)
-    prime = str(self.primes[cc])
+    try:
+      prime = str(self.primes[cc])
+    except:
+      log("Cyclomatic complexity too big: 0x%x -> %d" % (f, cc))
+      prime = 0
+
     comment = GetFunctionCmt(f, 1)
     bytes_hash = md5("".join(bytes_hash)).hexdigest()
     function_hash = md5("".join(function_hash)).hexdigest()
@@ -1474,11 +1491,18 @@ class CBinDiff:
     t = time.time()
     for func in func_list:
       i += 1
-      if i % 100 == 0 or i == 1:
-        line = "Exported %d function(s) out of %d total.\nElapsed %d second(s), remaining ~%d second(s)"
+      if (total_funcs > 100) and i % (total_funcs/100) == 0 or i == 1:
+        line = "Exported %d function(s) out of %d total.\nElapsed %d:%02d:%02d second(s), remaining time ~%d:%02d:%02d"
         elapsed = time.time() - t
         remaining = (elapsed / i) * (total_funcs - i)
-        replace_wait_box(line % (i, total_funcs, int(elapsed), int(remaining)))
+
+        m, s = divmod(remaining, 60)
+        h, m = divmod(m, 60)
+        m_elapsed, s_elapsed = divmod(elapsed, 60)
+        h_elapsed, m_elapsed = divmod(m_elapsed, 60)
+
+        replace_wait_box(line % (i, total_funcs, h_elapsed, m_elapsed, s_elapsed, h, m, s))
+
       props = self.read_function(func)
       if props == False:
         continue
@@ -1492,7 +1516,7 @@ class CBinDiff:
       self.save_function(props)
 
       # Try to fix bug #30
-      if i % 1000 == 0:
+      if i % (total_funcs/10) == 0:
         self.db.commit()
 
     md5sum = GetInputFileMD5()
@@ -2598,7 +2622,7 @@ class CBinDiff:
 
       r = self.check_ratio(ast1, ast2, pseudo1, pseudo2, asm1, asm2)
 
-      if r == 1 and best != self.best_chooser:
+      if r == 1:
         self.best_chooser.add_item(CChooser.Item(ea, name1, ea2, name2, desc, r))
         self.matched1.add(name1)
         self.matched2.add(name2)
@@ -2678,7 +2702,11 @@ class CBinDiff:
       ratio = (commons * 1.) / total
       if ratio >= 0.5:
         ea2 = row[5]
-        choose.add_item(CChooser.Item(ea, name1, ea2, name2, "Nodes, edges, complexity and mnemonics with small differences", ratio))
+        item = CChooser.Item(ea, name1, ea2, name2, "Nodes, edges, complexity and mnemonics with small differences", ratio)
+        if ratio == 1.0:
+          self.best_chooser.add_item(item)
+        else:
+          choose.add_item(item)
         self.matched1.add(name1)
         self.matched2.add(name2)
 
@@ -2693,8 +2721,8 @@ class CBinDiff:
                     f.pseudocode_primes, d.pseudocode_primes
                from functions f,
                     diff.functions d
-              where (d.mangled_function = f.mangled_function
-                  or d.name = f.name)"""
+              where d.mangled_function = f.mangled_function
+                 or d.name = f.name"""
     log_refresh("Finding with heuristic 'Same name'")
     cur.execute(sql)
     rows = cur.fetchall()
@@ -3617,6 +3645,13 @@ class BinDiffOptions:
     self.func_summaries_only = kwargs.get('func_summaries_only', total_functions > 100000)
 
 #-----------------------------------------------------------------------
+def is_ida_file(filename):
+  filename = filename.lower()
+  return filename.endswith(".idb") or filename.endswith(".i64") or \
+         filename.endswith(".til") or filename.endswith(".id0") or \
+         filename.endswith(".id1") or filename.endswith(".nam")
+
+#-----------------------------------------------------------------------
 def _diff_or_export(use_ui, **options):
   global g_bindiff
 
@@ -3643,11 +3678,8 @@ def _diff_or_export(use_ui, **options):
   elif opts.file_out == "" or len(opts.file_out) < 5:
     Warning("No output database selected or invalid filename. Please select a database file.")
     return
-  elif opts.file_out[len(opts.file_out)-4:].lower() in [".idb", ".i64"] or opts.file_in[len(opts.file_in)-4:].lower() in [".idb", ".i64"]:
-    Warning("One of the selected databases is an IDA database (IDB or I64), not a SQLite database!")
-    return
-  elif opts.file_out.lower().endswith(".til") or opts.file_in.lower().endswith(".id0") or opts.file_in.lower().endswith(".id1") or opts.file_in.lower().endswith(".nam"):
-    Warning("One of the selected databases is an IDA temporary file, not a SQLite database!")
+  elif is_ida_file(opts.file_in) or is_ida_file(opts.file_out):
+    Warning("One of the selected databases is an IDA file. Please select only database files")
     return
 
   export = True
