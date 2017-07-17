@@ -8,7 +8,7 @@ For more details, please check the tutorial in the "doc" directory.
 
 You can join the mailing list https://groups.google.com/forum/?hl=es#!forum/diaphora to ask for help, new features, report issues, etc... For reporting bugs, however, I recommend using the issues tracker:  https://github.com/joxeankoret/diaphora/issues
 
-Please note that only the last 2 versions of IDA will be supported. As of today, it means that only 6.7 and 6.8 are supported. Version 6.6 "should work" (with all the last patches that were supplied to *customers*), but no support is offered for it.
+Please note that only the last 2 versions of IDA will be supported. As of today, it means that only IDA 6.95 and 7.0 are supported. Versions 6.8 and 6.9 do work (with all the last patches that were supplied to *customers*), but no support is offered for them.
 
 ## Documentation
 
@@ -16,7 +16,11 @@ You can check the tutorial https://github.com/joxeankoret/diaphora/blob/master/d
 
 ## Screenshots
 
-This is a screenshot of Diaphora diffing the [Microsoft bulletin MS15-034](https://technet.microsoft.com/en-us/library/security/ms15-034.aspx):
+This is a screenshot of Diaphora diffing the PEGASUS iOS kernel Vulnerability fixed in iOS 9.3.5:
+
+![Diffing iOS 9.3.5 diff](http://sektioneins.de/images/diaphora1.png)
+
+And this is an old screenshot of Diaphora diffing the [Microsoft bulletin MS15-034](https://technet.microsoft.com/en-us/library/security/ms15-034.aspx):
 
 ![Diaphora diffing MS15-034](https://pbs.twimg.com/media/CCnruP_W0AA8ksc.png:large)
 
